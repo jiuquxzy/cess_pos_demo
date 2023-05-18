@@ -14,7 +14,7 @@ func TestGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal("construct stacked expanders error", err)
 	}
-	t.Log("construct stacked expanders time:", time.Since(st))
+	t.Log("construct stacked expanders time:", time.Since(st), stackedGraph)
 	st = time.Now()
 	path, err := graph.PebblingGraph(stackedGraph, id, 1, graph.DEFAULT_PATH)
 	if err != nil {
