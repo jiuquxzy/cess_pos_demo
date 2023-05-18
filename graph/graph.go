@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"cess_pos_demo/util"
 
@@ -15,6 +16,10 @@ import (
 /*
 This package is implemented with reference to (https://github.com/zbo14/pos/graph)
 */
+
+var (
+	LeveldbThread = 32
+)
 
 type Graph struct {
 	Size  int64 `json:"size"`
@@ -76,10 +81,7 @@ func (g *Graph) GetNode(idx int64) (*Node, error) {
 		return nil, err
 	}
 	node := new(Node)
-	if err = json.Unmarshal(data, node); err != nil {
-		log.Println("unmarshal node error", err)
-		return nil, err
-	}
+	node.UnmarshalBinary(data)
 	if node.Index != idx {
 		return nil, fmt.Errorf("expected node with idx=%d; got idx=%d", idx, node.Index)
 	}
@@ -87,12 +89,8 @@ func (g *Graph) GetNode(idx int64) (*Node, error) {
 }
 
 func (g *Graph) PutNode(node *Node) error {
-	data, err := json.Marshal(node)
-	if err != nil {
-		log.Println("marshal node error", err)
-		return err
-	}
-	err = g.db.Put(util.Int64Bytes(node.Index), data, nil)
+	data := node.MarshalBinary()
+	err := g.db.Put(util.Int64Bytes(node.Index), data, nil)
 	if err != nil {
 		log.Println("put node to db error", err)
 	}
@@ -100,7 +98,7 @@ func (g *Graph) PutNode(node *Node) error {
 }
 
 func (g *Graph) putBatch(node *Node) {
-	data, _ := json.Marshal(node)
+	data := node.MarshalBinary()
 	g.batch.Put(util.Int64Bytes(node.Index), data)
 }
 
@@ -130,11 +128,23 @@ func ConstructStackedExpanders(path string, n, k, d int64, localize bool) (*Stac
 	if err != nil {
 		return nil, errors.Wrap(err, "construct stacked expanders error")
 	}
-	for idx := int64(0); idx < size; idx++ {
-		graph.putBatch(NewNode(idx))
-	}
-	graph.writeBatch()
 	wg := sync.WaitGroup{}
+	wg.Add(LeveldbThread)
+	st := time.Now()
+	for i := 0; i < LeveldbThread; i++ {
+		go func(i int64) {
+			defer wg.Done()
+			a := i * size / int64(LeveldbThread)
+			b := (i + 1) * size / int64(LeveldbThread)
+			for j := a; j < b; j++ {
+				graph.PutNode(NewNode(j))
+			}
+		}(int64(i))
+	}
+	wg.Wait()
+	//
+	log.Println("insert node to graph time:", time.Since(st))
+	wg = sync.WaitGroup{}
 	for m := int64(0); m < size-n; m += n {
 		wg.Add(1)
 		go func(m int64) {
@@ -142,6 +152,8 @@ func ConstructStackedExpanders(path string, n, k, d int64, localize bool) (*Stac
 			if err := PinskerExpander(graph, m, n, d, localize); err != nil {
 				log.Println("construct stacked expanders error", err)
 			}
+			//
+			fmt.Println("layer", m, "done")
 		}(m)
 	}
 	wg.Wait()
@@ -152,7 +164,6 @@ func ConstructStackedExpanders(path string, n, k, d int64, localize bool) (*Stac
 }
 
 func PinskerExpander(g *Graph, m, n, d int64, localize bool) error {
-	batch := new(leveldb.Batch)
 	for sink := m + n; sink < m+2*n; sink++ {
 		node, err := g.GetNode(sink)
 		if err != nil {
@@ -170,12 +181,9 @@ func PinskerExpander(g *Graph, m, n, d int64, localize bool) error {
 		if localize {
 			node.AddParent(node.Index - n)
 		}
-		data, err := json.Marshal(node)
-		if err != nil {
+		if err = g.PutNode(node); err != nil {
 			return errors.Wrap(err, "construct pinsker expander error")
 		}
-		batch.Put(util.Int64Bytes(node.Index), data)
-
 	}
-	return errors.Wrap(g.db.Write(batch, nil), "construct pinsker expander error")
+	return nil
 }

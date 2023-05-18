@@ -36,7 +36,7 @@ func (d Data) Equals(other merkletree.Content) (bool, error) {
 }
 
 func CalculateMerkelTreeRoot(data [][]byte) ([]byte, error) {
-	t, err := calculateMerkelTree(data)
+	t, err := CalculateMerkelTree(data)
 	if err != nil {
 		return nil, err
 	}
@@ -47,11 +47,15 @@ func CalculateTreePath(data [][]byte, index int) ([][]byte, []int64, error) {
 	if index < 0 || index > len(data) {
 		return nil, nil, errors.New("index out of range")
 	}
-	t, err := calculateMerkelTree(data)
+	t, err := CalculateMerkelTree(data)
 	if err != nil {
 		return nil, nil, err
 	}
 	return t.GetMerklePath(Data(data[index]))
+}
+
+func CalculateTreePathWitTree(tree *merkletree.MerkleTree, leaf []byte) ([][]byte, []int64, error) {
+	return tree.GetMerklePath(Data(leaf))
 }
 
 func VerifyTreePath(path [][]byte, locs []int64, node, root []byte) bool {
@@ -69,7 +73,7 @@ func VerifyTreePath(path [][]byte, locs []int64, node, root []byte) bool {
 	return bytes.Equal(node, root)
 }
 
-func calculateMerkelTree(data [][]byte) (*merkletree.MerkleTree, error) {
+func CalculateMerkelTree(data [][]byte) (*merkletree.MerkleTree, error) {
 	list := make([]merkletree.Content, len(data))
 	for i := 0; i < len(data); i++ {
 		list[i] = Data(data[i])

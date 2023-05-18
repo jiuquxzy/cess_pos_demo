@@ -19,6 +19,7 @@ import (
 const (
 	DEFAULT_PATH = "./Proofs"
 	LAYER_NAME   = "layer"
+	COMMIT_FILE  = "roots"
 )
 
 var HashSize = 64
@@ -74,7 +75,8 @@ func PebblingGraph(g *StackedExpanders, ID []byte, Count int64, rdir string) (st
 			label := append(ID, util.Int64Bytes(Count)...)
 			label = append(label, util.Int64Bytes(node.Index)...)
 			if !node.NoParents() {
-				for idx := range node.Parents {
+				parents := Sort(node.Parents)
+				for _, idx := range parents {
 					if idx >= i*g.N {
 						label = append(label, layerLabs[idx-i*g.N]...)
 					} else {
@@ -111,7 +113,7 @@ func PebblingGraph(g *StackedExpanders, ID []byte, Count int64, rdir string) (st
 	}
 	dir = path.Join(rdir, hstr)
 	if err = util.SaveProofFile(
-		path.Join(dir, "roots"),
+		path.Join(dir, COMMIT_FILE),
 		append(roots, root)); err != nil {
 		return dir, errors.Wrap(err, "pebbling graph error")
 	}
@@ -127,6 +129,15 @@ func NewHash() hash.Hash {
 	default:
 		return sha512.New()
 	}
+}
+
+func GetHash(data []byte) []byte {
+	h := NewHash()
+	if data == nil {
+		data = []byte("none")
+	}
+	h.Write(data)
+	return h.Sum(nil)
 }
 
 func Sort(nodes map[int64]struct{}) []int64 {
