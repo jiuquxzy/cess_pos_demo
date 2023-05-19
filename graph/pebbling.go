@@ -100,7 +100,7 @@ func PebblingGraph(g *StackedExpanders, ID []byte, Count int64, rdir string) (st
 			layerLabs); err != nil {
 			return dir, errors.Wrap(err, "pebbling graph error")
 		}
-		log.Println("calc layer:", i)
+		log.Println("calc layer", i, "done")
 	}
 	//calculate new dir name
 	root, err := tree.CalculateMerkelTreeRoot(roots)

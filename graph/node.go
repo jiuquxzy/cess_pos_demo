@@ -29,7 +29,7 @@ func (node *Node) AddParent(parent int64) bool {
 }
 
 func (node Node) NoParents() bool {
-	return len(node.Parents) == 0
+	return len(node.Parents) <= 0
 }
 
 // MarshalBinary marshal node to bytes（just be used to save in leveldb）

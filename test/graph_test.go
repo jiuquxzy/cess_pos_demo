@@ -10,7 +10,7 @@ func TestGraph(t *testing.T) {
 	gpath := "graph/stacked_expanders/g001"
 	id := []byte("this is a account id")
 	st := time.Now()
-	stackedGraph, err := graph.ConstructStackedExpanders(gpath, 1024*1024*4, 31, 128, true)
+	stackedGraph, err := graph.ConstructStackedExpanders(gpath, 1024*1024, 7, 48, true)
 	if err != nil {
 		t.Fatal("construct stacked expanders error", err)
 	}

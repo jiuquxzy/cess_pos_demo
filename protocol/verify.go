@@ -14,19 +14,19 @@ import (
 	"github.com/pkg/errors"
 )
 
+// ProofNode denote Prover
 type ProofNode struct {
-	ID        []byte
-	CommitBuf [][]byte
-	Commits   [][]byte
-	Acc       []byte
-	Count     int64
+	ID        []byte   // Prover ID(generally, use AccountID)
+	CommitBuf [][]byte //buffer for all layer MHT proofs of one commit
+	Commits   [][]byte //Prover's Commit proofs
+	Acc       []byte   //Prover's accumulator
+	Count     int64    // Idle file proofs' counter
 }
 
 type Verifier struct {
-	K, N, D int64
-	Key     acc.RsaKey
-	Nodes   map[string]*ProofNode
-	Seed    []byte
+	K, N, D int64                 //Graph params,graph size=(K+1)*N,D is in-degree of each node
+	Key     acc.RsaKey            //accumulator public key
+	Nodes   map[string]*ProofNode //Provers
 }
 
 func NewVerifier(key acc.RsaKey, k, n, d int64) *Verifier {
@@ -50,9 +50,11 @@ func (v *Verifier) ReceiveCommits(ID []byte, commits [][]byte) bool {
 	id := hex.EncodeToString(ID)
 	pNode, ok := v.Nodes[id]
 	if !ok {
-		return false
-	}
-	if !bytes.Equal(pNode.ID, ID) {
+		v.Nodes[id] = &ProofNode{
+			ID: ID,
+		}
+		pNode = v.Nodes[id]
+	} else if !bytes.Equal(pNode.ID, ID) {
 		return false
 	}
 	if len(commits) != int(v.K+2) {
@@ -71,6 +73,7 @@ func (v *Verifier) ReceiveCommits(ID []byte, commits [][]byte) bool {
 }
 
 func (v *Verifier) CommitChallenges() (map[int64]struct{}, error) {
+	//Randomly select one node from each layer in the graph as a challenge
 	challenges := make(map[int64]struct{})
 	for i := int64(0); i <= v.K; i++ {
 		r, err := rand.Int(rand.Reader, new(big.Int).SetInt64(v.N))
@@ -83,6 +86,7 @@ func (v *Verifier) CommitChallenges() (map[int64]struct{}, error) {
 }
 
 func (v *Verifier) SpaceChallenges(count, param int64) (map[int64]int64, error) {
+	//Randomly select several nodes from idle files as random challenges
 	challenges := make(map[int64]int64)
 	for i := int64(0); i < param; i++ {
 		for {
@@ -127,7 +131,9 @@ func (v *Verifier) VerifyCommit(ID []byte, chals map[int64]struct{}, commitProof
 		}
 		layer := proof.Node.Index / v.N
 		root := node.CommitBuf[layer]
-		ok = tree.VerifyTreePath(proof.Node.Paths, proof.Node.Locs, proof.Node.Label, root)
+		//verify MHT Proof
+		hash := graph.GetHash(proof.Node.Label)
+		ok = tree.VerifyTreePath(proof.Node.Paths, proof.Node.Locs, hash, root)
 		if !ok {
 			return false, nil
 		}
@@ -141,29 +147,37 @@ func (v *Verifier) VerifyCommit(ID []byte, chals map[int64]struct{}, commitProof
 		label := append(ID, util.Int64Bytes(node.Count+1)...)
 		label = append(label, util.Int64Bytes(proof.Node.Index)...)
 		for _, p := range proof.Parents {
-			root := node.CommitBuf[layer-1]
-			ok = tree.VerifyTreePath(p.Paths, p.Locs, p.Label, root)
+			hash := graph.GetHash(p.Label)
+			if p.Index >= layer*v.N {
+				root = node.CommitBuf[layer]
+			} else {
+				root = node.CommitBuf[layer-1]
+			}
+			//verify parent MHT Proof
+			ok = tree.VerifyTreePath(p.Paths, p.Locs, hash, root)
 			if !ok {
 				return false, nil
 			}
 			label = append(label, p.Label...)
 		}
-		hash := graph.GetHash(label)
+		//Verify each node pebbled from all parents
+		hash = graph.GetHash(label)
 		if !bytes.Equal(hash, proof.Node.Label) {
 			return false, nil
 		}
 	}
 	//verify acc
 	if node.Acc == nil {
-		node.Acc = commitProof.ACC
-	} else {
-		elem := append(ID, util.Int64Bytes(node.Count+1)...)
-		elem = append(elem, node.CommitBuf[v.K]...)
-		hash := graph.GetHash(elem)
-		if !acc.Verify(v.Key, commitProof.ACC, hash, node.Acc) {
-			return false, nil
-		}
+		node.Acc = v.Key.G.Bytes()
 	}
+	elem := append(ID, util.Int64Bytes(node.Count+1)...)
+	elem = append(elem, node.CommitBuf[v.K]...)
+	hash := graph.GetHash(elem)
+	if !acc.Verify(v.Key, commitProof.ACC, hash, node.Acc) {
+		return false, nil
+	}
+	//update prover params
+	node.Acc = commitProof.ACC
 	node.Commits = append(node.Commits, node.CommitBuf[v.K])
 	node.Count += 1
 	return true, nil
@@ -187,19 +201,42 @@ func (v *Verifier) VerifySpace(ID []byte, chals map[int64]int64, spaceProof *Spa
 			err := errors.New("bad graph node index")
 			return false, errors.Wrap(err, "verify space proof error")
 		}
+		//verify MHT Proof
+		hash := graph.GetHash(spaceProof.Proofs[i].Label)
 		if !tree.VerifyTreePath(spaceProof.Proofs[i].Paths, spaceProof.Proofs[i].Locs,
-			spaceProof.Proofs[i].Label, spaceProof.Roots[i]) {
+			hash, spaceProof.Roots[i]) {
 			return false, nil
 		}
+		//verify MHT root
 		if !bytes.Equal(node.Commits[spaceProof.Index[i]-1], spaceProof.Roots[i]) {
 			return false, nil
 		}
+		//verify acc
 		label := append(ID, util.Int64Bytes(spaceProof.Index[i])...)
 		label = append(label, spaceProof.Roots[i]...)
-		hash := graph.GetHash(label)
+		hash = graph.GetHash(label)
 		if !acc.Verify(v.Key, node.Acc, hash, spaceProof.Wits[i]) {
 			return false, nil
 		}
 	}
+	return true, nil
+}
+
+func (v *Verifier) VerifyDeletion(ID []byte, proof *DeletionProof) (bool, error) {
+	node, ok := v.Nodes[hex.EncodeToString(ID)]
+	if !ok {
+		err := errors.New("bad prover ID")
+		return false, errors.Wrap(err, "verify space proof error")
+	}
+	//verify acc
+	label := append(ID, util.Int64Bytes(node.Count)...)
+	label = append(label, proof.Root...)
+	hash := graph.GetHash(label)
+	if !acc.Verify(v.Key, node.Acc, hash, proof.Acc) {
+		return false, nil
+	}
+	node.Commits = node.Commits[:node.Count-1]
+	node.Count -= 1
+	node.Acc = proof.Acc
 	return true, nil
 }

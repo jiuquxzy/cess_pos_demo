@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"sync"
-	"time"
 
 	"cess_pos_demo/util"
 
@@ -18,7 +17,7 @@ This package is implemented with reference to (https://github.com/zbo14/pos/grap
 */
 
 var (
-	LeveldbThread = 32
+	LeveldbThread = 16
 )
 
 type Graph struct {
@@ -46,28 +45,24 @@ func NewGraph(path string, size int64) (*Graph, error) {
 	return g, err
 }
 
-func MarshalGraphToJson(graph *Graph) (string, error) {
-	bytes, err := json.Marshal(graph)
-	if err != nil {
-		log.Println("marshal graph to json string error", err)
-		return "", err
-	}
-	return string(bytes), nil
+func (g *StackedExpanders) MarshalGraph() ([]byte, error) {
+	return json.Marshal(g)
 }
 
-func UnmarshalGraph(s string) (*Graph, error) {
-	graph := new(Graph)
-	err := json.Unmarshal([]byte(s), graph)
+func UnmarshalGraph(data []byte) (*StackedExpanders, error) {
+	g := &StackedExpanders{
+		Graph: new(Graph),
+	}
+	err := json.Unmarshal(data, g)
 	if err != nil {
-		log.Println("unmarshal graph error", err)
 		return nil, err
 	}
-	graph.batch = new(leveldb.Batch)
-	graph.db, err = leveldb.OpenFile(graph.Path, nil)
+	g.db, err = leveldb.OpenFile(g.Path, nil)
+	g.batch = new(leveldb.Batch)
 	if err != nil {
-		log.Printf("open leveldb from %s error %v\n", graph.Path, err)
+		return nil, err
 	}
-	return graph, err
+	return g, nil
 }
 
 func (g *Graph) GetNode(idx int64) (*Node, error) {
@@ -120,40 +115,34 @@ func (g *Graph) GetParents(idx int64) (map[int64]struct{}, error) {
 	return node.Parents, nil
 }
 
-//Adapted from "Proof of Space from Stacked Expanders", 2016 (Ren, Devadas)
-
+// Adapted from "Proof of Space from Stacked Expanders", 2016 (Ren, Devadas)
 func ConstructStackedExpanders(path string, n, k, d int64, localize bool) (*StackedExpanders, error) {
 	size := n * (k + 1)
 	graph, err := NewGraph(path, size)
 	if err != nil {
 		return nil, errors.Wrap(err, "construct stacked expanders error")
 	}
+	//add first layer nodes into leveldb
 	wg := sync.WaitGroup{}
 	wg.Add(LeveldbThread)
-	st := time.Now()
 	for i := 0; i < LeveldbThread; i++ {
 		go func(i int64) {
 			defer wg.Done()
-			a := i * size / int64(LeveldbThread)
-			b := (i + 1) * size / int64(LeveldbThread)
+			a := i * n / int64(LeveldbThread)
+			b := (i + 1) * n / int64(LeveldbThread)
 			for j := a; j < b; j++ {
 				graph.PutNode(NewNode(j))
 			}
 		}(int64(i))
 	}
 	wg.Wait()
-	//
-	log.Println("insert node to graph time:", time.Since(st))
+	//add no-source nodes with their parents map into leveldb
 	wg = sync.WaitGroup{}
-	for m := int64(0); m < size-n; m += n {
+	for m := n; m < size; m += n {
 		wg.Add(1)
 		go func(m int64) {
 			defer wg.Done()
-			if err := PinskerExpander(graph, m, n, d, localize); err != nil {
-				log.Println("construct stacked expanders error", err)
-			}
-			//
-			fmt.Println("layer", m, "done")
+			PinskerExpander(graph, m, n, d, localize)
 		}(m)
 	}
 	wg.Wait()
@@ -163,27 +152,33 @@ func ConstructStackedExpanders(path string, n, k, d int64, localize bool) (*Stac
 	}, nil
 }
 
-func PinskerExpander(g *Graph, m, n, d int64, localize bool) error {
-	for sink := m + n; sink < m+2*n; sink++ {
-		node, err := g.GetNode(sink)
-		if err != nil {
-			return errors.Wrap(err, "construct pinsker expander error")
-		}
-		for count := int64(0); count < d; {
-			src := util.Rand(n) + m
-			if localize && src+n < node.Index {
-				src = src + n
+func PinskerExpander(g *Graph, m, n, d int64, localize bool) {
+	wg := sync.WaitGroup{}
+	wg.Add(LeveldbThread)
+	for i := 0; i < LeveldbThread; i++ {
+		go func(i int64) {
+			defer wg.Done()
+			a := m + i*n/int64(LeveldbThread)
+			b := m + (i+1)*n/int64(LeveldbThread)
+			for sink := a; sink < b; sink++ {
+				node := NewNode(sink)
+				for count := int64(0); count < d; {
+					src := util.Rand(n) + m - n
+					if localize && src+n < node.Index {
+						src = src + n
+					}
+					if node.AddParent(src) {
+						count++
+					}
+				}
+				if localize {
+					node.AddParent(node.Index - n)
+				}
+				if err := g.PutNode(node); err != nil {
+					return
+				}
 			}
-			if node.AddParent(src) {
-				count++
-			}
-		}
-		if localize {
-			node.AddParent(node.Index - n)
-		}
-		if err = g.PutNode(node); err != nil {
-			return errors.Wrap(err, "construct pinsker expander error")
-		}
+		}(int64(i))
 	}
-	return nil
+	wg.Wait()
 }

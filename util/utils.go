@@ -76,6 +76,10 @@ func ReadProofFile(path string, num, len int) ([][]byte, error) {
 	return data, nil
 }
 
+func DeleteFile(dir string) error {
+	return os.RemoveAll(dir)
+}
+
 type Int64s []int64
 
 func (i64s Int64s) Len() int {

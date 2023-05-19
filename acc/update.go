@@ -16,11 +16,11 @@ func AddMember(key RsaKey, acc, u []byte) []byte {
 	return newAcc.Bytes()
 }
 
-func NewAccManager(key RsaKey, acc []byte) *AccManager {
+func NewAccManager(key RsaKey) *AccManager {
 	return &AccManager{
 		Key:   key,
-		Acc:   acc,
-		Elems: [][]byte{acc},
+		Acc:   key.G.Bytes(),
+		Elems: [][]byte{},
 	}
 }
 
@@ -38,7 +38,7 @@ func (m *AccManager) DeleteOneMember() []byte {
 		return nil
 	}
 	if len(m.Elems) == 1 {
-		e := m.Acc
+		e := m.Elems[0]
 		m.Acc = nil
 		m.Elems = nil
 		return e
