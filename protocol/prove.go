@@ -8,9 +8,14 @@ import (
 	"fmt"
 	"log"
 	"path"
-	"time"
+	"sync"
 
+	"github.com/CESSProject/go-merkletree"
 	"github.com/pkg/errors"
+)
+
+var (
+	ProofBufSize = 1024
 )
 
 type Prover struct {
@@ -19,6 +24,7 @@ type Prover struct {
 	ID         []byte
 	FilePath   []string
 	AccManager *acc.AccManager
+	TokenChan  chan struct{}
 }
 
 type MerkelTreeProof struct {
@@ -64,10 +70,15 @@ type DeletionProof struct {
 }
 
 func NewProver(key acc.RsaKey, id []byte) *Prover {
-	return &Prover{
+	p := &Prover{
 		ID:         id,
 		AccManager: acc.NewAccManager(key),
+		TokenChan:  make(chan struct{}, ProofBufSize),
 	}
+	for i := 0; i < ProofBufSize; i++ {
+		p.TokenChan <- struct{}{}
+	}
+	return p
 }
 
 func (p *Prover) NewGraph(path string, n int64, k int64, d int64, localize bool) error {
@@ -76,8 +87,10 @@ func (p *Prover) NewGraph(path string, n int64, k int64, d int64, localize bool)
 	return err
 }
 
-func (p *Prover) SetGraph(path string) error {
-	return nil
+func (p *Prover) SetGraph(path string, n int64, k int64, d int64) error {
+	var err error
+	p.graph, err = graph.NewStackedExpanders(path, n, k, d)
+	return err
 }
 
 func (p *Prover) GetParams() *ProofParams {
@@ -99,6 +112,15 @@ func (p *Prover) CreateIdleFile(rdir string) (string, error) {
 	return path, nil
 }
 
+func (p Prover) GetGraph() *graph.StackedExpanders {
+	return p.graph
+}
+
+func (p *Prover) AddIdleFile(path string) {
+	p.Count++
+	p.FilePath = append(p.FilePath, path)
+}
+
 func (p *Prover) ReadCommitProof(fidx int) ([][]byte, error) {
 	if fidx <= 0 || fidx > len(p.FilePath) {
 		return nil, errors.New("create commit proof error index out of range")
@@ -115,14 +137,23 @@ func (p *Prover) ReadCommitProof(fidx int) ([][]byte, error) {
 func (p *Prover) ProveCommit(fdir string, challenges map[int64]struct{}) (*CommitProof, error) {
 	proofs := make([]CommitProofItem, len(challenges))
 	i := 0
+	wg := sync.WaitGroup{}
 	for k := range challenges {
-		proof, err := p.GenerateCommitProof(fdir, k)
-		if err != nil {
-			return nil, errors.Wrap(err, "prove commit error")
-		}
-		proofs[i] = *proof
+		<-p.TokenChan
+		wg.Add(1)
+		go func(k int64, i int) {
+			defer func() { p.TokenChan <- struct{}{} }()
+			defer wg.Done()
+			proof, err := p.GenerateCommitProof(fdir, k)
+			if err != nil {
+				log.Println(errors.Wrap(err, "prove commit error"))
+				return
+			}
+			proofs[i] = *proof
+		}(k, i)
 		i++
 	}
+	wg.Wait()
 	data, err := util.ReadProofFile(
 		path.Join(fdir, graph.COMMIT_FILE),
 		int(p.graph.K+2), graph.HashSize,
@@ -150,8 +181,13 @@ func (p *Prover) GenerateCommitProof(fdir string, c int64) (*CommitProofItem, er
 	if err != nil {
 		return nil, errors.Wrap(err, "generate commit proof error")
 	}
+	var nodeTree, parentTree *merkletree.MerkleTree
 	index := c % p.graph.N
-	treePath, locs, err := tree.CalculateTreePath(data, int(index))
+	nodeTree, err = tree.CalculateMerkelTree(data)
+	if err != nil {
+		return nil, errors.Wrap(err, "generate commit proof error")
+	}
+	treePath, locs, err := tree.CalculateTreePathWitTree(nodeTree, data[int(index)])
 	if err != nil {
 		return nil, errors.Wrap(err, "generate commit proof error")
 	}
@@ -166,39 +202,53 @@ func (p *Prover) GenerateCommitProof(fdir string, c int64) (*CommitProofItem, er
 	if layer == 0 {
 		return proof, nil
 	}
-	fpath = path.Join(fdir, fmt.Sprintf("%s-%d", graph.LAYER_NAME, layer-1))
 	parents, err := p.graph.GetParents(c)
 	if err != nil {
 		return nil, errors.Wrap(err, "generate commit proof error")
 	}
+	fpath = path.Join(fdir, fmt.Sprintf("%s-%d", graph.LAYER_NAME, layer-1))
 	pdata, err := util.ReadProofFile(fpath, int(p.graph.N), graph.HashSize)
 	if err != nil {
 		return nil, errors.Wrap(err, "generate commit proof error")
 	}
-	st := time.Now()
+	parentTree, err = tree.CalculateMerkelTree(pdata)
+	if err != nil {
+		return nil, errors.Wrap(err, "generate commit proof error")
+	}
 	list := graph.Sort(parents)
-	log.Println("sort parents time", time.Since(st))
 	parentProofs := make([]MerkelProofItem, len(list))
-
-	var label []byte
+	wg := sync.WaitGroup{}
+	wg.Add(len(list))
+	mu := sync.Mutex{}
 	for i := 0; i < len(list); i++ {
-		index := list[i] % p.graph.N
-		if list[i] >= layer*p.graph.N {
-			label = data[index]
-			treePath, locs, err = tree.CalculateTreePath(data, int(index))
-		} else {
-			label = pdata[index]
-			treePath, locs, err = tree.CalculateTreePath(pdata, int(index))
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "generate commit proof error")
-		}
-		parentProofs[i] = MerkelProofItem{
-			Index: list[i],
-			Label: label,
-			Paths: treePath,
-			Locs:  locs,
-		}
+		go func(i int) {
+			defer wg.Done()
+			var label []byte
+			index := list[i] % p.graph.N
+			if list[i] >= layer*p.graph.N {
+				label = data[index]
+				treePath, locs, err = tree.CalculateTreePathWitTree(nodeTree, label)
+			} else {
+				label = pdata[index]
+				treePath, locs, err = tree.CalculateTreePathWitTree(parentTree, label)
+			}
+			if err != nil {
+				mu.Lock()
+				err = errors.Wrap(err, "generate commit proof error")
+				mu.Unlock()
+				return
+			}
+			parentProofs[i] = MerkelProofItem{
+				Index: list[i],
+				Label: label,
+				Paths: treePath,
+				Locs:  locs,
+			}
+		}(i)
+	}
+	wg.Wait()
+	if err != nil {
+		return nil, err
 	}
 	proof.Parents = parentProofs
 	return proof, nil
@@ -263,7 +313,7 @@ func (p *Prover) ProveDeletion() (*DeletionProof, error) {
 	dproof.Root = data[p.graph.K]
 	p.AccManager.DeleteOneMember()
 	dir := p.FilePath[p.Count-1]
-	if err := util.DeleteFile(dir); err != nil {
+	if err := util.DeleteDir(dir); err != nil {
 		return nil, errors.Wrap(err, "prove deletion error")
 	}
 	p.FilePath = p.FilePath[:p.Count-1]

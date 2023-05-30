@@ -58,7 +58,7 @@ func PebblingGraph(g *StackedExpanders, ID []byte, Count int64, rdir string) (st
 	for i := int64(0); i <= g.K; i++ {
 		layerLabs := make([][]byte, g.N)
 		//load parents' label
-		if i > 0 {
+		if i > 0 && labels == nil {
 			labels, err = util.ReadProofFile(
 				path.Join(dir, fmt.Sprintf("%s-%d", LAYER_NAME, i-1)),
 				int(g.N), HashSize)
@@ -100,7 +100,7 @@ func PebblingGraph(g *StackedExpanders, ID []byte, Count int64, rdir string) (st
 			layerLabs); err != nil {
 			return dir, errors.Wrap(err, "pebbling graph error")
 		}
-		log.Println("calc layer", i, "done")
+		labels = layerLabs
 	}
 	//calculate new dir name
 	root, err := tree.CalculateMerkelTreeRoot(roots)

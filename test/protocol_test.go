@@ -14,7 +14,7 @@ func TestProtocol(t *testing.T) {
 	gpath := "graph/stacked_expanders/g003"
 	prover := protocol.NewProver(key, id)
 	//get graph
-	err := prover.NewGraph(gpath, 1024*1024, 7, 64, true)
+	err := prover.SetGraph(gpath, 1024*1024, 7, 64)
 	if err != nil {
 		t.Fatal("create new graph error", err)
 	}
@@ -29,6 +29,8 @@ func TestProtocol(t *testing.T) {
 	}
 	t.Log("file path ", fpath)
 	t.Log("create file time:", time.Since(st))
+	// fpath := "Proofs/8f8bac339f6a254852c4a286952b6faf8a7cb7296465314f5812a410382c3d1066a9b54302bb33cea0b6361c9b942b31ce945b7c59afbe6aa9cffdaa8bf18bbe"
+	// prover.AddIdleFile(fpath)
 	//commit proof
 	st = time.Now()
 	proofs, err := prover.ReadCommitProof(int(prover.Count))

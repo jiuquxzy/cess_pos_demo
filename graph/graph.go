@@ -45,6 +45,20 @@ func NewGraph(path string, size int64) (*Graph, error) {
 	return g, err
 }
 
+func NewStackedExpanders(path string, n, k, d int64) (*StackedExpanders, error) {
+	sg := &StackedExpanders{
+		N: n,
+		K: k,
+		D: d,
+	}
+	g, err := NewGraph(path, n*(k+1))
+	if err != nil {
+		return nil, err
+	}
+	sg.Graph = g
+	return sg, nil
+}
+
 func (g *StackedExpanders) MarshalGraph() ([]byte, error) {
 	return json.Marshal(g)
 }

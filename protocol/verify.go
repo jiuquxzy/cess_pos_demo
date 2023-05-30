@@ -135,6 +135,7 @@ func (v *Verifier) VerifyCommit(ID []byte, chals map[int64]struct{}, commitProof
 		hash := graph.GetHash(proof.Node.Label)
 		ok = tree.VerifyTreePath(proof.Node.Paths, proof.Node.Locs, hash, root)
 		if !ok {
+			log.Println("verify node tree path error")
 			return false, nil
 		}
 		if len(proof.Parents) == 0 {
@@ -156,6 +157,7 @@ func (v *Verifier) VerifyCommit(ID []byte, chals map[int64]struct{}, commitProof
 			//verify parent MHT Proof
 			ok = tree.VerifyTreePath(p.Paths, p.Locs, hash, root)
 			if !ok {
+				log.Println("verify parent tree path error")
 				return false, nil
 			}
 			label = append(label, p.Label...)
@@ -163,6 +165,7 @@ func (v *Verifier) VerifyCommit(ID []byte, chals map[int64]struct{}, commitProof
 		//Verify each node pebbled from all parents
 		hash = graph.GetHash(label)
 		if !bytes.Equal(hash, proof.Node.Label) {
+			log.Println("verify node label error")
 			return false, nil
 		}
 	}
@@ -174,6 +177,7 @@ func (v *Verifier) VerifyCommit(ID []byte, chals map[int64]struct{}, commitProof
 	elem = append(elem, node.CommitBuf[v.K]...)
 	hash := graph.GetHash(elem)
 	if !acc.Verify(v.Key, commitProof.ACC, hash, node.Acc) {
+		log.Println("verify acc error")
 		return false, nil
 	}
 	//update prover params

@@ -2,6 +2,7 @@ package util
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -76,8 +77,48 @@ func ReadProofFile(path string, num, len int) ([][]byte, error) {
 	return data, nil
 }
 
-func DeleteFile(dir string) error {
+func DeleteDir(dir string) error {
 	return os.RemoveAll(dir)
+}
+
+func SaveFile(path string, data []byte) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	in := bufio.NewWriter(f)
+	_, err = in.Write(data)
+	return err
+}
+
+func DeleteFile(path string) error {
+	return os.Remove(path)
+}
+
+func ReadFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	out := bufio.NewReader(f)
+	buffer := bytes.NewBuffer(nil)
+	buf := make([]byte, 1024)
+	for {
+		n, err := out.Read(buf)
+		if err != nil {
+			return nil, err
+		}
+		if n <= 0 {
+			break
+		}
+		_, err = buffer.Write(buf[:n])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return buffer.Bytes(), nil
 }
 
 type Int64s []int64

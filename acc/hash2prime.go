@@ -20,7 +20,6 @@ func Fu(x big.Int) big.Int {
 	u := x
 	temp1 := new(big.Int).Add(&u, big.NewInt(2))
 	temp1.Mul(temp1, big.NewInt(2))
-	//fmt.Println(temp1)
 
 	temp2 := new(big.Int).Add(&u, big.NewInt(1))
 
@@ -37,13 +36,11 @@ func Fu(x big.Int) big.Int {
 	y := math.Pow((math.Log2(w) + float64(bit-1)), 2)
 
 	temp1.Mul(temp1, big.NewInt(int64(y)))
-	//fmt.Println("Fu:", x, temp1)
 	return *temp1
 
 }
 
-//Hprime returns the prime which is mapped to set element u in collision resistant manner
-
+// Hprime returns the prime which is mapped to set element u in collision resistant manner
 func Hprime(u big.Int) big.Int {
 
 	Huj := Fu(u)
