@@ -38,7 +38,7 @@ func NewVerifier(key acc.RsaKey, k, n, d int64) *Verifier {
 }
 
 func (v *Verifier) AddParams(param ProofParams) bool {
-	if v.K != param.K || v.N != param.N || v.N != param.D {
+	if v.K != param.K || v.N != param.N || v.D != param.D {
 		return false
 	}
 	id := hex.EncodeToString(param.ID)
