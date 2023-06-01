@@ -1,6 +1,7 @@
 package acc
 
 import (
+	"crypto/sha512"
 	"math"
 	"math/big"
 )
@@ -16,7 +17,6 @@ import (
 */
 
 func Fu(x big.Int) big.Int {
-
 	u := x
 	temp1 := new(big.Int).Add(&u, big.NewInt(2))
 	temp1.Mul(temp1, big.NewInt(2))
@@ -42,10 +42,10 @@ func Fu(x big.Int) big.Int {
 
 // Hprime returns the prime which is mapped to set element u in collision resistant manner
 func Hprime(u big.Int) big.Int {
-
-	Huj := Fu(u)
-	j := Fu(u)
-
+	h := sha512.New()
+	h.Write(u.Bytes())
+	Huj := Fu(*new(big.Int).SetBytes(h.Sum(nil)))
+	j := *new(big.Int).SetBytes(Huj.Bytes())
 	var temp big.Int
 	for {
 

@@ -110,12 +110,11 @@ func ReadFile(path string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if n <= 0 {
-			break
-		}
-		_, err = buffer.Write(buf[:n])
-		if err != nil {
+		if _, err = buffer.Write(buf[:n]); err != nil {
 			return nil, err
+		}
+		if n < 1024 {
+			break
 		}
 	}
 	return buffer.Bytes(), nil

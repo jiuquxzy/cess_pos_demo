@@ -32,10 +32,6 @@ func MakeProofDir(rootPath, name string) error {
 	return os.MkdirAll(dir, 0777)
 }
 
-// PebblingGraph is used to simulate the process of generating node label values in pebbling game.
-// Note that the calculation process will consume O(3N) of auxiliary space,
-// although localization techniques are used. It use N-sized memory to accelerate calculations,
-// and O(N) space for calculating MerkelTree.
 func PebblingGraph(g *StackedExpanders, ID []byte, Count int64, rdir string) (string, error) {
 	hash := NewHash()
 	var (

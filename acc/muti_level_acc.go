@@ -23,6 +23,17 @@ const (
 	DEFAULT_NAME      = "sub-acc"
 )
 
+type AccHandle interface {
+	//get muti-level acc snapshot
+	GetSnapshot() *MutiLevelAcc
+	//add elements to muti-level acc and create proof of added elements
+	AddElementsAndProof([][]byte) (*WitnessNode, [][]byte, error)
+	//delete elements from muti-level acc and create proof of deleted elements
+	DeleteElementsAndProof(int) (*WitnessNode, [][]byte, error)
+}
+
+var _AccManager *MutiLevelAcc
+
 type AccNode struct {
 	Value    []byte
 	Children []*AccNode
@@ -54,7 +65,7 @@ type MutiLevelAcc struct {
 	FilePath  string
 }
 
-func NewMutiLevelAcc(path string, key RsaKey) (*MutiLevelAcc, error) {
+func NewMutiLevelAcc(path string, key RsaKey) (AccHandle, error) {
 	if path == "" {
 		path = DEFAULT_PATH
 	}
@@ -67,12 +78,17 @@ func NewMutiLevelAcc(path string, key RsaKey) (*MutiLevelAcc, error) {
 	acc := &AccNode{
 		Value: key.G.Bytes(),
 	}
-	return &MutiLevelAcc{
+	_AccManager = &MutiLevelAcc{
 		Accs:     acc,
 		Key:      key,
 		mu:       new(sync.Mutex),
 		FilePath: path,
-	}, nil
+	}
+	return _AccManager, nil
+}
+
+func GetAccHandle() AccHandle {
+	return _AccManager
 }
 
 // GetSnapshot get ACC's snapshot if it is updating,else create and return new snapshot.
@@ -82,10 +98,11 @@ func (acc *MutiLevelAcc) GetSnapshot() *MutiLevelAcc {
 	defer acc.mu.Unlock()
 	if acc.isUpdate && acc.snapshot != nil {
 		return acc.snapshot
-	} else {
-		acc.createSnapshot()
-		return acc.snapshot
 	}
+	if acc.snapshot == nil {
+		acc.createSnapshot()
+	}
+	return acc.snapshot
 }
 
 func (acc *MutiLevelAcc) copy(other *MutiLevelAcc) {
@@ -98,8 +115,12 @@ func (acc *MutiLevelAcc) copy(other *MutiLevelAcc) {
 	acc.Key = other.Key
 	acc.ElemNums = other.ElemNums
 	acc.CurrCount = other.CurrCount
-	acc.Curr = other.Curr
-	acc.Parent = other.Parent
+	if acc.Accs.Len > 0 {
+		acc.Parent = acc.Accs.Children[acc.Accs.Len-1]
+	}
+	if acc.Parent != nil && acc.Parent.Len > 0 {
+		acc.Curr = acc.Parent.Children[acc.Parent.Len-1]
+	}
 	acc.mu = other.mu
 	acc.FilePath = other.FilePath
 }
@@ -112,19 +133,24 @@ func (acc *MutiLevelAcc) createSnapshot() {
 func (acc *MutiLevelAcc) setUpdate(yes bool) bool {
 	acc.mu.Lock()
 	defer acc.mu.Unlock()
-	if acc.isUpdate {
+	//two or more updates at the same time are not allowed
+	if acc.isUpdate && yes {
 		return false
 	}
 	if yes {
 		acc.createSnapshot()
 		acc.isUpdate = true
-	} else {
-		acc.isUpdate = false
+		return true
 	}
+	acc.createSnapshot()
+	acc.isUpdate = false
 	return true
 }
 
 func (acc *MutiLevelAcc) updateAcc(node *AccNode) {
+	if node == nil {
+		return
+	}
 	lens := len(node.Children)
 	node.Len = lens
 	if lens == 0 {
@@ -165,7 +191,7 @@ func (acc *MutiLevelAcc) addElements(elems [][]byte) (*AccNode, error) {
 	)
 	node := &AccNode{}
 	if acc.CurrCount > 0 && acc.CurrCount < DEFAULT_ELEMS_NUM {
-		index := acc.ElemNums / DEFAULT_ELEMS_NUM
+		index := (acc.ElemNums - 1) / DEFAULT_ELEMS_NUM
 		data, err = readAccData(DEFAULT_PATH, index)
 		if err != nil {
 			return nil, errors.Wrap(err, "add elements to sub acc error")
@@ -181,7 +207,7 @@ func (acc *MutiLevelAcc) addElements(elems [][]byte) (*AccNode, error) {
 		acc.Key, data.Wits[node.Len-1],
 		[][]byte{data.Values[node.Len-1]},
 	)
-	index := (acc.ElemNums + len(elems)) / DEFAULT_ELEMS_NUM
+	index := ((acc.ElemNums + len(elems)) - 1) / DEFAULT_ELEMS_NUM
 	err = saveAccData(DEFAULT_PATH, index, data.Values, data.Wits)
 	return node, errors.Wrap(err, "add elements to sub acc error")
 }
@@ -231,7 +257,8 @@ func (acc *MutiLevelAcc) addSubAcc(subAcc *AccNode) {
 }
 
 func (acc *MutiLevelAcc) DeleteElements(num int) error {
-	if num <= 0 || acc.CurrCount > 0 && num > acc.CurrCount {
+	if num <= 0 || acc.CurrCount > 0 && num > acc.CurrCount ||
+		num > DEFAULT_ELEMS_NUM {
 		err := errors.New("illegal number of elements")
 		return errors.Wrap(err, "delete elements error")
 	}
@@ -241,7 +268,7 @@ func (acc *MutiLevelAcc) DeleteElements(num int) error {
 	}
 	defer acc.setUpdate(false)
 	if num < acc.CurrCount {
-		index := acc.ElemNums / DEFAULT_ELEMS_NUM
+		index := (acc.ElemNums - 1) / DEFAULT_ELEMS_NUM
 		data, err := readAccData(DEFAULT_PATH, index)
 		if err != nil {
 			return errors.Wrap(err, "delet elements error")
@@ -258,31 +285,30 @@ func (acc *MutiLevelAcc) DeleteElements(num int) error {
 			acc.Key, data.Wits[acc.CurrCount-1],
 			[][]byte{data.Values[acc.CurrCount-1]},
 		)
-	} else if acc.ElemNums == num {
-		index := acc.ElemNums / DEFAULT_ELEMS_NUM
-		err := deleteAccData(DEFAULT_PATH, index)
-		if err != nil {
-			return errors.Wrap(err, "delet elements error")
-		}
-		acc.Curr.Len = 0
-		acc.Curr.Wit = nil
-		acc.Curr.Value = acc.Key.G.Bytes()
-		acc.CurrCount = 0
 	} else {
-		index := acc.ElemNums / DEFAULT_ELEMS_NUM
+		index := (acc.ElemNums - 1) / DEFAULT_ELEMS_NUM
 		err := deleteAccData(DEFAULT_PATH, index)
 		if err != nil {
 			return errors.Wrap(err, "delet elements error")
 		}
 		acc.Parent.Children = acc.Parent.Children[:acc.Parent.Len-1]
 		acc.Parent.Len -= 1
-		if acc.Parent.Len == 0 && acc.Accs.Len > 1 {
+		if acc.Parent.Len == 0 && acc.Accs.Len >= 1 {
 			acc.Accs.Children = acc.Accs.Children[:acc.Accs.Len-1]
 			acc.Accs.Len -= 1
-			acc.Parent = acc.Accs.Children[acc.Accs.Len-1]
+			if acc.Accs.Len > 0 {
+				acc.Parent = acc.Accs.Children[acc.Accs.Len-1]
+			} else {
+				acc.Parent = nil
+			}
 		}
-		acc.Curr = acc.Parent.Children[acc.Parent.Len-1]
-		acc.CurrCount = acc.Curr.Len
+		if acc.Parent != nil && acc.Parent.Len >= 1 {
+			acc.Curr = acc.Parent.Children[acc.Parent.Len-1]
+			acc.CurrCount = acc.Curr.Len
+		} else {
+			acc.Curr = nil
+			acc.CurrCount = 0
+		}
 	}
 	acc.ElemNums -= num
 	//update sibling witness and parent acc
@@ -299,6 +325,9 @@ func copyAccNode(src *AccNode, target *AccNode) {
 	target.Value = make([]byte, len(src.Value))
 	copy(target.Value, src.Value)
 	target.Children = make([]*AccNode, len(src.Children))
+	target.Len = src.Len
+	target.Wit = make([]byte, len(src.Wit))
+	copy(target.Wit, src.Wit)
 	for i := 0; i < len(src.Children); i++ {
 		target.Children[i] = &AccNode{}
 		copyAccNode(src.Children[i], target.Children[i])
@@ -344,8 +373,8 @@ func generateWitness(G, N big.Int, us [][]byte) [][]byte {
 		}
 	}()
 	wg.Wait()
-	u1 := GenerateWitness(g1, N, left)
-	u2 := GenerateWitness(g2, N, left)
+	u1 := generateWitness(g1, N, left)
+	u2 := generateWitness(g2, N, right)
 	return append(u1, u2...)
 }
 
@@ -378,7 +407,7 @@ func genWitsForAccNodes(G, N big.Int, elems []*AccNode) {
 	}()
 	wg.Wait()
 	genWitsForAccNodes(g1, N, left)
-	genWitsForAccNodes(g2, N, left)
+	genWitsForAccNodes(g2, N, right)
 }
 
 func saveAccData(dir string, index int, elems, wits [][]byte) error {
@@ -425,6 +454,7 @@ func deleteAccData(dir string, last int) error {
 }
 
 // Accumulator validation interface
+
 func VerifyAcc(key RsaKey, acc, u, wit []byte) bool {
 	e := Hprime(*new(big.Int).SetBytes(u))
 	dash := new(big.Int).Exp(
@@ -434,6 +464,8 @@ func VerifyAcc(key RsaKey, acc, u, wit []byte) bool {
 	return dash.Cmp(new(big.Int).SetBytes(acc)) == 0
 }
 
+// VerifyMutilevelAcc uses witness chains to realize the existence proof of elements in multi-level accumulators;
+// The witness chain is the witness list from the bottom accumulator to the top accumulator (root accumulator)
 func VerifyMutilevelAcc(key RsaKey, wits *WitnessNode, acc []byte) bool {
 	for wits != nil && wits.Acc != nil {
 		if !VerifyAcc(key, wits.Acc.Elem, wits.Elem, wits.Wit) {
@@ -447,31 +479,43 @@ func VerifyMutilevelAcc(key RsaKey, wits *WitnessNode, acc []byte) bool {
 	return bytes.Equal(wits.Elem, acc)
 }
 
+// AddElementsAndProof add elements to muti-level acc and create proof of added elements
 func (acc *MutiLevelAcc) AddElementsAndProof(elems [][]byte) (*WitnessNode, [][]byte, error) {
 	snapshot := acc.GetSnapshot()
-	exist := &WitnessNode{Elem: acc.Accs.Value}
+	exist := &WitnessNode{Elem: snapshot.Accs.Value}
 	err := acc.AddElements(elems)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "proof acc insert error")
 	}
+	//the proof of adding elements consists of two parts,
+	//the first part is the witness chain of the bottom accumulator where the element is located,
+	//witness chain node is a special structure(Elem(acc value) is G,Wit is parent node's Elem)
+	//when inserting an element needs to trigger the generation of a new accumulator,
+	//the second part is an accumulator list, which contains the accumulator value
+	//recalculated from the bottom to the top after inserting elements
 	count := 1
 	for p, q := acc.Accs, snapshot.Accs; p != nil && q != nil && count < DEFAULT_LEVEL; {
-		exist = &WitnessNode{Acc: exist}
 		if p.Len > q.Len {
 			for i := count; i < DEFAULT_LEVEL; i++ {
-				exist.Elem = acc.Key.G.Bytes()
-				exist.Wit = exist.Acc.Elem
 				exist = &WitnessNode{Acc: exist}
+				exist.Elem, exist.Wit = acc.Key.G.Bytes(), exist.Acc.Elem
 			}
 			break
 		}
 		count++
-		p = p.Children[p.Len-1]
-		q = q.Children[q.Len-1]
-		exist.Elem = q.Value
-		exist.Wit = q.Wit
+		p, q = p.Children[p.Len-1], q.Children[q.Len-1]
+		exist = &WitnessNode{Acc: exist}
+		exist.Elem, exist.Wit = q.Value, q.Wit
 	}
-	return exist, [][]byte{acc.Curr.Value, acc.Parent.Value, acc.Accs.Value}, nil
+	p := acc.Accs
+	accs := make([][]byte, DEFAULT_LEVEL)
+	for i := 0; i < DEFAULT_LEVEL; i++ {
+		accs[DEFAULT_LEVEL-i-1] = p.Value
+		if p.Children != nil {
+			p = p.Children[p.Len-1]
+		}
+	}
+	return exist, accs, nil
 }
 
 func VerifyInsertUpdate(key RsaKey, exist *WitnessNode, elems, accs [][]byte, acc []byte) bool {
@@ -483,9 +527,14 @@ func VerifyInsertUpdate(key RsaKey, exist *WitnessNode, elems, accs [][]byte, ac
 	for p.Acc != nil && bytes.Equal(p.Acc.Elem, p.Wit) {
 		p = p.Acc
 	}
+	//proof of the witness of accumulator elements,
+	//when the element's accumulator does not exist, recursively verify its parent accumulator
 	if !VerifyMutilevelAcc(key, p, acc) {
 		return false
 	}
+
+	//verify that the newly generated accumulators after inserting elements
+	//is calculated on the original accumulators
 	subAcc := generateAcc(key, exist.Elem, elems)
 	if !bytes.Equal(subAcc, accs[0]) {
 		return false
@@ -503,7 +552,10 @@ func VerifyInsertUpdate(key RsaKey, exist *WitnessNode, elems, accs [][]byte, ac
 	return true
 }
 
+// DeleteElementsAndProof delete elements from muti-level acc and create proof of deleted elements
 func (acc *MutiLevelAcc) DeleteElementsAndProof(num int) (*WitnessNode, [][]byte, error) {
+
+	//Before deleting elements, get their chain of witness
 	exist := &WitnessNode{
 		Elem: acc.Curr.Value,
 		Wit:  acc.Curr.Wit,
@@ -513,24 +565,27 @@ func (acc *MutiLevelAcc) DeleteElementsAndProof(num int) (*WitnessNode, [][]byte
 			Acc:  &WitnessNode{Elem: acc.Accs.Value},
 		},
 	}
-	accs := make([][]byte, DEFAULT_LEVEL)
 	snapshot := acc.GetSnapshot()
 	err := acc.DeleteElements(num)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "proof acc delete error")
 	}
-	count := 0
+	//computes the new accumulators generated after removing elements,
+	//when deleting element requires deleting an empty accumulator at the same time,
+	//the corresponding new accumulator is G
+	accs := make([][]byte, DEFAULT_LEVEL)
+	accs[DEFAULT_LEVEL-1] = acc.Accs.Value
+	count := 1
 	for p, q := acc.Accs, snapshot.Accs; p != nil && q != nil && count < DEFAULT_LEVEL; {
 		if p.Len < q.Len {
-			for i := DEFAULT_LEVEL - 1; i >= count; i-- {
+			for i := DEFAULT_LEVEL - count - 1; i >= 0; i-- {
 				accs[i] = acc.Key.G.Bytes()
 			}
 			break
 		}
 		count++
+		p, q = p.Children[p.Len-1], q.Children[q.Len-1]
 		accs[DEFAULT_LEVEL-count] = p.Value
-		p = p.Children[p.Len-1]
-		q = q.Children[q.Len-1]
 	}
 	return exist, accs, nil
 }
@@ -539,6 +594,7 @@ func VerifyDeleteUpdate(key RsaKey, exist *WitnessNode, elems, accs [][]byte, ac
 	if exist == nil || len(elems) == 0 || len(accs) < DEFAULT_LEVEL {
 		return false
 	}
+	//first need to verify whether the deleted elements are in the muti-level accumulator
 	if !VerifyMutilevelAcc(key, exist, acc) {
 		return false
 	}
@@ -546,6 +602,7 @@ func VerifyDeleteUpdate(key RsaKey, exist *WitnessNode, elems, accs [][]byte, ac
 	if !bytes.Equal(subAcc, exist.Elem) {
 		return false
 	}
+	//then verify that the new accumulators is deleted on the original accumulators
 	p := exist
 	count := 1
 	for p != nil && p.Acc != nil {
@@ -560,5 +617,5 @@ func VerifyDeleteUpdate(key RsaKey, exist *WitnessNode, elems, accs [][]byte, ac
 		p = p.Acc
 		count++
 	}
-	return false
+	return true
 }

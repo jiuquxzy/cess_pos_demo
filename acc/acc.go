@@ -67,6 +67,7 @@ func GenerateWitness(G, N big.Int, us [][]byte) [][]byte {
 	go func() {
 		for _, u := range right {
 			e := Hprime(*new(big.Int).SetBytes(u))
+			//e := *new(big.Int).SetBytes(u)
 			g1.Exp(&g1, &e, &N)
 		}
 		sig <- struct{}{}
@@ -74,6 +75,7 @@ func GenerateWitness(G, N big.Int, us [][]byte) [][]byte {
 	go func() {
 		for _, u := range left {
 			e := Hprime(*new(big.Int).SetBytes(u))
+			//e := *new(big.Int).SetBytes(u)
 			g2.Exp(&g2, &e, &N)
 		}
 		sig <- struct{}{}
@@ -81,6 +83,6 @@ func GenerateWitness(G, N big.Int, us [][]byte) [][]byte {
 	<-sig
 	<-sig
 	u1 := GenerateWitness(g1, N, left)
-	u2 := GenerateWitness(g2, N, left)
+	u2 := GenerateWitness(g2, N, right)
 	return append(u1, u2...)
 }
