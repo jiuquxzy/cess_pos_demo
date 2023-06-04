@@ -43,6 +43,18 @@ func CalculateMerkelTreeRoot(data [][]byte) ([]byte, error) {
 	return t.MerkleRoot(), nil
 }
 
+func CalculateMerkelTreeRoot2(data []byte, lens int) ([]byte, error) {
+	datas := make([][]byte, len(data)/lens)
+	for i := 0; i < len(datas); i++ {
+		datas[i] = data[i*lens : (i+1)*lens]
+	}
+	t, err := CalculateMerkelTree(datas)
+	if err != nil {
+		return nil, err
+	}
+	return t.MerkleRoot(), nil
+}
+
 func CalculateTreePath(data [][]byte, index int) ([][]byte, []int64, error) {
 	if index < 0 || index > len(data) {
 		return nil, nil, errors.New("index out of range")

@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"log"
 	r "math/rand"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -35,6 +37,7 @@ func Rand(max int64) int64 {
 }
 
 func SaveProofFile(path string, data [][]byte) error {
+	ts := time.Now()
 	file, err := os.Create(path)
 	if err != nil {
 		return errors.Wrap(err, "save proof file error")
@@ -47,8 +50,9 @@ func SaveProofFile(path string, data [][]byte) error {
 			err := errors.New(fmt.Sprint("write label error", err))
 			return errors.Wrap(err, "write proof file error")
 		}
+		writer.Flush()
 	}
-	writer.Flush()
+	log.Println("write file", path, "time", time.Since(ts))
 	return nil
 }
 
@@ -89,6 +93,7 @@ func SaveFile(path string, data []byte) error {
 	defer f.Close()
 	in := bufio.NewWriter(f)
 	_, err = in.Write(data)
+	in.Flush()
 	return err
 }
 
