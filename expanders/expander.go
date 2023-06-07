@@ -68,18 +68,22 @@ func (node *Node) AddParent(parent NodeType) bool {
 	if node.Index == parent {
 		return false
 	}
+	if node.Parents == nil ||
+		len(node.Parents) >= cap(node.Parents) {
+		return false
+	}
 	i, ok := node.ParentInList(parent)
 	if ok {
 		return false
 	}
-	if node.Parents == nil {
-		node.Parents = append(node.Parents, parent)
+	node.Parents = append(node.Parents, 0)
+	lens := len(node.Parents)
+	if lens == 1 || lens == cap(node.Parents) {
+		node.Parents[i] = parent
 		return true
 	}
-	after := node.Parents[i:]
-	node.Parents = append([]NodeType{}, node.Parents[:i]...)
-	node.Parents = append(node.Parents, parent)
-	node.Parents = append(node.Parents, after...)
+	copy(node.Parents[i+1:], node.Parents[i:lens-1])
+	node.Parents[i] = parent
 	return true
 }
 
@@ -111,10 +115,19 @@ func (node *Node) ParentInList(parent NodeType) (int, bool) {
 	return i, false
 }
 
-func GetBytes(v NodeType) []byte {
+func GetBytes(v any) []byte {
 	bytesBuffer := bytes.NewBuffer([]byte{})
 	binary.Write(bytesBuffer, binary.BigEndian, v)
 	return bytesBuffer.Bytes()
+}
+
+func BytesToNodeValue(data []byte, Max int64) NodeType {
+	v, _ := binary.Varint(data)
+	if v < 0 {
+		v = -v
+	}
+	v %= Max
+	return NodeType(v)
 }
 
 func RandFunc(max NodeType) func() NodeType {

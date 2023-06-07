@@ -3,6 +3,7 @@ package test
 import (
 	"cess_pos_demo/expanders"
 	"encoding/json"
+	_ "net/http/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -31,11 +32,11 @@ func TestIdleFileGeneration(t *testing.T) {
 	t.Log("construct stacked expanders time", time.Since(ts))
 	ts = time.Now()
 	wg := sync.WaitGroup{}
-	wg.Add(64)
-	for i := 0; i < 64; i++ {
+	wg.Add(32)
+	for i := 0; i < 32; i++ {
 		go func(count int) {
 			defer wg.Done()
-			path, err := graph.GenerateIdleFile([]byte("test miner id"), int64(count), expanders.DEFAULT_IDLE_FILES_PATH)
+			path, err := graph.GenerateIdleFileWitRandExpanders([]byte("test miner id"), int64(count), expanders.DEFAULT_IDLE_FILES_PATH)
 			if err != nil {
 				t.Log("generate idle file", err)
 			}
