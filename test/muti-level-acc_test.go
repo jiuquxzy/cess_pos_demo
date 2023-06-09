@@ -2,7 +2,7 @@ package test
 
 import (
 	"cess_pos_demo/acc"
-	"cess_pos_demo/graph"
+	"cess_pos_demo/expanders"
 	"cess_pos_demo/util"
 	"testing"
 	"time"
@@ -12,7 +12,7 @@ func TestMutiLevelAcc(t *testing.T) {
 	size := 1024 * 1024 * 2
 	data := make([][]byte, size)
 	for i := 0; i < len(data); i++ {
-		data[i] = graph.GetHash([]byte(util.RandString(64)))
+		data[i] = expanders.GetHash([]byte(util.RandString(64)))
 	}
 	key := acc.RsaKeygen(2048)
 	macc, err := acc.NewMutiLevelAcc("", key)

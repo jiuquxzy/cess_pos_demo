@@ -3,10 +3,8 @@ package expanders
 import (
 	"bytes"
 	"cess_pos_demo/util"
-	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
-	"unsafe"
 
 	"github.com/pkg/errors"
 )
@@ -19,9 +17,7 @@ type NodeType int32
 
 type Expanders struct {
 	K, N, D int64
-	ID      []byte
-	Size    int64   `json:"size"`
-	Nodes   []*Node `json:"nodes"`
+	Size    int64 `json:"size"`
 }
 
 type Node struct {
@@ -48,16 +44,11 @@ func ReadAndUnmarshalExpanders(path string) (*Expanders, error) {
 	return expander, errors.Wrap(err, "read and unmarshal expanders error")
 }
 
-func NewExpanders(k, n, d int64, ID []byte) *Expanders {
+func NewExpanders(k, n, d int64) *Expanders {
 	return &Expanders{
-		ID:   ID,
 		Size: (k + 1) * n,
 		K:    k, N: n, D: d,
 	}
-}
-
-func (expanders *Expanders) GetRelationalMap() *[]*Node {
-	return &expanders.Nodes
 }
 
 func NewNode(idx NodeType) *Node {
@@ -128,17 +119,4 @@ func BytesToNodeValue(data []byte, Max int64) NodeType {
 	}
 	v %= Max
 	return NodeType(v)
-}
-
-func RandFunc(max NodeType) func() NodeType {
-	len := unsafe.Sizeof(max)
-	buf := make([]byte, len)
-	return func() NodeType {
-		rand.Read(buf)
-		value, _ := binary.Varint(buf)
-		if value < 0 {
-			value *= -1
-		}
-		return NodeType(value) % max
-	}
 }

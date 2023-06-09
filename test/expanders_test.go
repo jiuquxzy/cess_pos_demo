@@ -2,6 +2,7 @@ package test
 
 import (
 	"cess_pos_demo/expanders"
+	"cess_pos_demo/tree"
 	"encoding/json"
 	_ "net/http/pprof"
 	"sync"
@@ -10,7 +11,7 @@ import (
 )
 
 func TestExpandersGenerate(t *testing.T) {
-	graph := expanders.ConstructStackedExpanders([]byte("test expanders"), 7, 256, 64, true)
+	graph := expanders.ConstructStackedExpanders(7, 256, 64)
 	err := graph.MarshalAndSave(expanders.DEFAULT_EXPANDERS_PATH)
 	if err != nil {
 		t.Fatal("test marshal expanders error", err)
@@ -28,19 +29,19 @@ func TestExpandersGenerate(t *testing.T) {
 
 func TestIdleFileGeneration(t *testing.T) {
 	ts := time.Now()
-	graph := expanders.ConstructStackedExpanders([]byte("test expanders"), 7, 1024*1024, 64, true)
+	graph := expanders.ConstructStackedExpanders(15, 1024*1024, 64)
 	t.Log("construct stacked expanders time", time.Since(ts))
+	tree.InitMhtPool(1024*1024, expanders.HashSize)
 	ts = time.Now()
 	wg := sync.WaitGroup{}
-	wg.Add(32)
-	for i := 0; i < 32; i++ {
+	wg.Add(16)
+	for i := 0; i < 16; i++ {
 		go func(count int) {
 			defer wg.Done()
-			path, err := graph.GenerateIdleFileWitRandExpanders([]byte("test miner id"), int64(count), expanders.DEFAULT_IDLE_FILES_PATH)
+			err := graph.GenerateIdleFile([]byte("test miner id"), int64(count), expanders.DEFAULT_IDLE_FILES_PATH)
 			if err != nil {
 				t.Log("generate idle file", err)
 			}
-			t.Log("idle file path", path)
 		}(i)
 	}
 	wg.Wait()

@@ -5,6 +5,7 @@ import (
 	"cess_pos_demo/util"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
 	"path"
@@ -30,6 +31,8 @@ type AccHandle interface {
 	AddElementsAndProof([][]byte) (*WitnessNode, [][]byte, error)
 	//delete elements from muti-level acc and create proof of deleted elements
 	DeleteElementsAndProof(int) (*WitnessNode, [][]byte, error)
+	//GetWithessChains return witness chains of specified element
+	GetWitnessChains(indexs []int64) ([]*WitnessNode, error)
 }
 
 var _AccManager *MutiLevelAcc
@@ -451,6 +454,56 @@ func deleteAccData(dir string, last int) error {
 		}
 	}
 	return nil
+}
+
+func (acc *MutiLevelAcc) GetWitnessChains(indexs []int64) ([]*WitnessNode, error) {
+	var err error
+	snapshot := acc.GetSnapshot()
+	chains := make([]*WitnessNode, len(indexs))
+	for i := 0; i < len(indexs); i++ {
+		chains[i], err = snapshot.getWitnessChain(indexs[i])
+		if err != nil {
+			return nil, errors.Wrap(err, "get witness chains error")
+		}
+	}
+	return chains, nil
+}
+
+func (acc *MutiLevelAcc) getWitnessChain(index int64) (*WitnessNode, error) {
+	if index <= 0 || index > int64(acc.ElemNums) {
+		return nil, errors.New("bad index")
+	}
+	p := acc.Accs
+	var wit *WitnessNode
+	i, tmp := 0, index
+	for ; i < DEFAULT_LEVEL; i++ {
+		wit = &WitnessNode{
+			Elem: p.Value,
+			Wit:  p.Wit,
+			Acc:  wit,
+		}
+		size := int64(math.Pow(DEFAULT_ELEMS_NUM, float64(DEFAULT_LEVEL-i-1)))
+		idx := (tmp - 1) / size
+		tmp = tmp / DEFAULT_ELEMS_NUM
+		if p.Len < int(idx+1) || p.Children == nil {
+			continue
+		}
+		p = p.Children[idx]
+	}
+	if i < DEFAULT_LEVEL {
+		return nil, errors.New("get witness node error")
+	}
+	data, err := readAccData(DEFAULT_PATH, int((index-1)/DEFAULT_ELEMS_NUM))
+	if err != nil {
+		return nil, err
+	}
+	idx := int((index - 1) % DEFAULT_ELEMS_NUM)
+	wit = &WitnessNode{
+		Elem: data.Values[idx],
+		Wit:  data.Wits[idx],
+		Acc:  wit,
+	}
+	return wit, nil
 }
 
 // Accumulator validation interface

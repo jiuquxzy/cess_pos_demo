@@ -101,6 +101,26 @@ func DeleteFile(path string) error {
 	return os.Remove(path)
 }
 
+func ReadFileToBuf(path string, buf []byte) error {
+	if len(buf) <= 0 {
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	reader := bufio.NewReader(f)
+	n, err := reader.Read(buf)
+	if err != nil {
+		return err
+	}
+	if n != len(buf) {
+		return errors.New("byte number read does not match")
+	}
+	return nil
+}
+
 func ReadFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -150,4 +170,16 @@ func RandString(lenNum int) string {
 		str.WriteString(CHARS[r.Intn(length)])
 	}
 	return str.String()
+}
+
+func CopyData(target []byte, src ...[]byte) {
+	count, lens := 0, len(target)
+	for _, d := range src {
+		l := len(d)
+		if l == 0 || l+count > lens {
+			continue
+		}
+		count += l
+		copy(target[count-l:count], d)
+	}
 }

@@ -1,8 +1,6 @@
 package expanders
 
-import (
-	"sync"
-)
+import "cess_pos_demo/util"
 
 const (
 	DEFAULT_ROUTINES = 8
@@ -12,43 +10,8 @@ var (
 	BuffSize = 2
 )
 
-func ConstructStackedExpanders(expandersID []byte, k, n, d int64, localize bool) *Expanders {
-	expanders := NewExpanders(k, n, d, expandersID)
-	//add first layer nodes into leveldb
-	expanders.Nodes = make([]*Node, n)
-	GenerateRelationalMap(expanders, localize)
-	return expanders
-}
-
-func GenerateRelationalMap(expanders *Expanders, localize bool) {
-	rmap := expanders.GetRelationalMap()
-	wg := sync.WaitGroup{}
-	wg.Add(DEFAULT_ROUTINES)
-	for i := 0; i < DEFAULT_ROUTINES; i++ {
-		go func(i int64) {
-			defer wg.Done()
-			left := i * expanders.N / DEFAULT_ROUTINES
-			right := (i + 1) * expanders.N / DEFAULT_ROUTINES
-			random := RandFunc(NodeType(expanders.N))
-			for j := left; j < right; j++ {
-				(*rmap)[j] = NewNode(NodeType(j + expanders.N))
-				(*rmap)[j].Parents = make([]NodeType, 0, expanders.D+1)
-				for count := int64(0); count < expanders.D; {
-					src := random()
-					if localize && src < NodeType(j) {
-						src += NodeType(expanders.N)
-					}
-					if (*rmap)[j].AddParent(src) {
-						count++
-					}
-				}
-				if localize {
-					(*rmap)[j].AddParent(NodeType(j))
-				}
-			}
-		}(int64(i))
-	}
-	wg.Wait()
+func ConstructStackedExpanders(k, n, d int64) *Expanders {
+	return NewExpanders(k, n, d)
 }
 
 func CalcParents(expanders *Expanders, node *Node, MinerID []byte, Count int64) {
@@ -58,7 +21,7 @@ func CalcParents(expanders *Expanders, node *Node, MinerID []byte, Count int64) 
 	}
 	lens := len(MinerID) + 8*17
 	content := make([]byte, lens)
-	copyData(content, MinerID, GetBytes(Count))
+	util.CopyData(content, MinerID, GetBytes(Count))
 	node.AddParent(node.Index - NodeType(expanders.N))
 
 	plate := make([][]byte, 16)
@@ -66,7 +29,7 @@ func CalcParents(expanders *Expanders, node *Node, MinerID []byte, Count int64) 
 		for j := 0; j < 16; j++ {
 			plate[i+j] = GetBytes(int64(i + j))
 		}
-		copyData(content[lens-8*16:], plate...)
+		util.CopyData(content[lens-8*16:], plate...)
 		hash := GetHash(content)
 		s, p := 0, NodeType(0)
 		for j := 0; j < 16; {
@@ -94,7 +57,7 @@ func CalcParents(expanders *Expanders, node *Node, MinerID []byte, Count int64) 
 	}
 }
 
-func RunRelationalMapServer(expanders *Expanders, MinerID []byte, Count int64) <-chan *Node {
+func (expanders *Expanders) RunRelationalMapServer(MinerID []byte, Count int64) <-chan *Node {
 	buf := make([]*Node, BuffSize)
 	for i := 0; i < BuffSize; i++ {
 		buf[i] = NewNode(0)
