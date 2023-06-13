@@ -11,7 +11,7 @@ import (
 
 func TestPois(t *testing.T) {
 	//Initialize the execution environment
-	graph := expanders.NewExpanders(3, 1024, 64)
+	graph := expanders.NewExpanders(7, 1024*1024, 64)
 	tree.InitMhtPool(int(graph.N), expanders.HashSize)
 	key := acc.RsaKeygen(2048)
 	err := pois.InitProver(
@@ -35,11 +35,11 @@ func TestPois(t *testing.T) {
 		t.Fatal("generate file error")
 	}
 	//wait 10 minutes for file generate
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Minute * 10)
 	ts := time.Now()
 
 	//get commits
-	commits, err := prover.GetCommits(1)
+	commits, err := prover.GetCommits(16)
 	if err != nil {
 		t.Fatal("get commits error", err)
 	}
@@ -57,7 +57,7 @@ func TestPois(t *testing.T) {
 
 	//generate commits challenges
 	ts = time.Now()
-	chals, err := verifier.CommitChallenges(prover.ID, 0, 1)
+	chals, err := verifier.CommitChallenges(prover.ID, 0, 16)
 	if err != nil {
 		t.Fatal("generate commit challenges error", err)
 	}
@@ -75,9 +75,9 @@ func TestPois(t *testing.T) {
 	ts = time.Now()
 	//err =
 	verifier.VerifyCommitProofs(prover.ID, chals, commitProof)
-	// if err != nil {
-	// 	t.Fatal("verify commit proof error", err)
-	// }
+	if err != nil {
+		t.Fatal("verify commit proof error", err)
+	}
 	t.Log("verify commit proof time", time.Since(ts))
 
 	//acc proof
@@ -106,7 +106,6 @@ func TestPois(t *testing.T) {
 	if !ok {
 		t.Fatal("update count error")
 	}
-	t.Log("count:", prover.Count)
 	//generate space challenges
 	ts = time.Now()
 	spaceChals, err := verifier.SpaceChallenges(prover.ID, int64(len(chals)))
@@ -133,18 +132,15 @@ func TestPois(t *testing.T) {
 
 	//deletion proof
 	ts = time.Now()
-	chProof, chErr := prover.ProveDeletion(1)
+	chProof, Err := prover.ProveDeletion(1)
 	var delProof *pois.DeletionProof
-	ok = true
-	for ok {
-		select {
-		case err := <-chErr:
-			t.Fatal("prove deletion proof error", err)
-		case delProof = <-chProof:
-			ok = false
-		}
+	select {
+	case err = <-Err:
+		t.Fatal("prove deletion proof error", err)
+	case delProof = <-chProof:
+		break
 	}
-	t.Log("prove delete proof time", time.Since(ts))
+	t.Log("prove deletion proof time", time.Since(ts))
 
 	//verify deletion proof
 	ts = time.Now()

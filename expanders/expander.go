@@ -45,10 +45,11 @@ func ReadAndUnmarshalExpanders(path string) (*Expanders, error) {
 }
 
 func NewExpanders(k, n, d int64) *Expanders {
-	return &Expanders{
+	expanders := &Expanders{
 		Size: (k + 1) * n,
 		K:    k, N: n, D: d,
 	}
+	return expanders
 }
 
 func NewNode(idx NodeType) *Node {

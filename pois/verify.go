@@ -317,6 +317,7 @@ func (v *Verifier) VerifyAcc(ID []byte, chals [][]int64, proof *AccProof) error 
 	pNode.Acc = proof.AccPath[len(proof.AccPath)-1]
 	pNode.CommitsBuf = append(pNode.CommitsBuf[:index],
 		pNode.CommitsBuf[index+len(chals):]...)
+	pNode.BufSize -= len(chals)
 	pNode.Count += int64(len(chals))
 	return nil
 }
@@ -328,7 +329,7 @@ func (v *Verifier) VerifySpace(ID []byte, chals [][]int64, proof *SpaceProof) er
 		err := errors.New("prover node not found")
 		return errors.Wrap(err, "verify space proofs error")
 	}
-	if len(chals) != len(proof.Roots) || len(chals) > pNode.BufSize {
+	if len(chals) != len(proof.Roots) {
 		err := errors.New("bad proof data")
 		return errors.Wrap(err, "verify space proofs error")
 	}
@@ -380,7 +381,7 @@ func (v *Verifier) VerifyDeletion(ID []byte, proof *DeletionProof) error {
 		label := make([]byte, len(ID)+8+expanders.HashSize)
 		util.CopyData(label, ID,
 			expanders.GetBytes(pNode.Count-int64(lens-i-1)), proof.Roots[i])
-		labels[i] = label
+		labels[i] = expanders.GetHash(label)
 	}
 	if !acc.VerifyDeleteUpdate(v.Key, proof.WitChain,
 		labels, proof.AccPath, pNode.Acc) {

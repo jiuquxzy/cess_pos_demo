@@ -74,7 +74,7 @@ func (expanders *Expanders) RunRelationalMapServer(MinerID []byte, Count int64) 
 		buf[i] = NewNode(0)
 		buf[i].Parents = make([]NodeType, 0, expanders.D+1)
 	}
-	out := make(chan Node, BuffSize)
+	out := make(chan Node, BuffSize/2)
 
 	go func() {
 		for l := int64(0); l <= expanders.K; l++ {

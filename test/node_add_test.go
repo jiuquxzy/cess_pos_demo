@@ -34,9 +34,9 @@ func TestAddNode2(t *testing.T) {
 
 func TestCalcParent(t *testing.T) {
 	graph := expanders.NewExpanders(3, 1024, 64)
-	node := expanders.NewNode(1024)
+	node := expanders.NewNode(3097)
 	node.Parents = make([]expanders.NodeType, 0, graph.D+1)
-	expanders.CalcParents(graph, node, []byte("test minerID"), 1)
+	expanders.CalcParents(graph, node, []byte("test miner id"), 1)
 	t.Log("node:", node)
 }
 

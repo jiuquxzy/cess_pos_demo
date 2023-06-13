@@ -1,13 +1,11 @@
 package pois
 
 import (
-	"bytes"
 	"cess_pos_demo/acc"
 	"cess_pos_demo/expanders"
 	"cess_pos_demo/tree"
 	"cess_pos_demo/util"
 	"fmt"
-	"log"
 	"path"
 	"sync"
 	"sync/atomic"
@@ -291,7 +289,6 @@ func (p *Prover) generateCommitProof(fdir string, count, c int64) (CommitProof, 
 	}
 
 	fpath := path.Join(fdir, fmt.Sprintf("%s-%d", expanders.LAYER_NAME, layer))
-	log.Println("path", fpath)
 	data := expanders.GetPool().Get().(*[]byte)
 	defer expanders.GetPool().Put(data)
 	if err := util.ReadFileToBuf(fpath, *data); err != nil {
@@ -371,14 +368,6 @@ func (p *Prover) generateCommitProof(fdir string, count, c int64) (CommitProof, 
 		return proof, err
 	}
 	proof.Parents = parentProofs
-	//log.Println("id", string(p.ID), "count", count, "index", c)
-	labels := append([]byte{}, p.ID...)
-	labels = append(labels, expanders.GetBytes(count)...)
-	labels = append(labels, expanders.GetBytes(proof.Node.Index)...)
-	for i := 0; i < len(proof.Parents); i++ {
-		labels = append(labels, proof.Parents[i].Label...)
-	}
-	log.Println("label result", bytes.Equal(expanders.GetHash(labels), proof.Node.Label))
 	return proof, nil
 }
 
@@ -491,13 +480,14 @@ func (p *Prover) ProveDeletion(num int64) (chan *DeletionProof, chan error) {
 			Err <- errors.Wrap(err, "prove deletion error")
 			return
 		}
-		ch <- &DeletionProof{
+		proof := &DeletionProof{
 			Roots:    roots,
 			WitChain: wits,
 			AccPath:  accs,
 		}
+		ch <- proof
 	}()
-	return nil, nil
+	return ch, Err
 }
 
 func (p *Prover) organizeFiles(num int64) error {

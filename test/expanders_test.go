@@ -36,11 +36,11 @@ func TestIdleFileGeneration(t *testing.T) {
 	tree.InitMhtPool(1024*1024, expanders.HashSize)
 	ts = time.Now()
 	wg := sync.WaitGroup{}
-	wg.Add(1)
-	for i := 0; i < 1; i++ {
+	wg.Add(16)
+	for i := 0; i < 16; i++ {
 		go func(count int) {
 			defer wg.Done()
-			err := graph.GenerateIdleFile([]byte("test miner id"), 7, expanders.DEFAULT_IDLE_FILES_PATH)
+			err := graph.GenerateIdleFile([]byte("test miner id"), int64(i+1), expanders.DEFAULT_IDLE_FILES_PATH)
 			if err != nil {
 				t.Log("generate idle file", err)
 			}
