@@ -475,7 +475,7 @@ func (acc *MutiLevelAcc) getWitnessChain(index int64) (*WitnessNode, error) {
 	}
 	p := acc.Accs
 	var wit *WitnessNode
-	i, tmp := 0, index
+	i := 0
 	for ; i < DEFAULT_LEVEL; i++ {
 		wit = &WitnessNode{
 			Elem: p.Value,
@@ -483,9 +483,9 @@ func (acc *MutiLevelAcc) getWitnessChain(index int64) (*WitnessNode, error) {
 			Acc:  wit,
 		}
 		size := int64(math.Pow(DEFAULT_ELEMS_NUM, float64(DEFAULT_LEVEL-i-1)))
-		idx := (tmp - 1) / size
-		tmp = tmp / DEFAULT_ELEMS_NUM
-		if p.Len < int(idx+1) || p.Children == nil {
+		idx := (index - 1) / size
+		idx = idx % size
+		if len(p.Children) < int(idx+1) || p.Children == nil {
 			continue
 		}
 		p = p.Children[idx]

@@ -137,7 +137,8 @@ func (mht LightMHT) GetPathProof(data []byte, index, size int) (PathProof, error
 			hash.Write(d)
 			proof.Path[i] = hash.Sum(nil)
 		} else {
-			proof.Path[i] = d
+			proof.Path[i] = make([]byte, size)
+			copy(proof.Path[i], d)
 		}
 		proof.Locs[i] = loc
 		num, index = num/2, index/2

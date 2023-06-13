@@ -29,16 +29,18 @@ func TestExpandersGenerate(t *testing.T) {
 
 func TestIdleFileGeneration(t *testing.T) {
 	ts := time.Now()
-	graph := expanders.ConstructStackedExpanders(15, 1024*1024, 64)
+	expanders.InitLabelsPool(1024*1024, int64(expanders.HashSize))
+	tree.InitMhtPool(1024*1024, expanders.HashSize)
+	graph := expanders.ConstructStackedExpanders(7, 1024*1024, 64)
 	t.Log("construct stacked expanders time", time.Since(ts))
 	tree.InitMhtPool(1024*1024, expanders.HashSize)
 	ts = time.Now()
 	wg := sync.WaitGroup{}
-	wg.Add(16)
-	for i := 0; i < 16; i++ {
+	wg.Add(1)
+	for i := 0; i < 1; i++ {
 		go func(count int) {
 			defer wg.Done()
-			err := graph.GenerateIdleFile([]byte("test miner id"), int64(count), expanders.DEFAULT_IDLE_FILES_PATH)
+			err := graph.GenerateIdleFile([]byte("test miner id"), 7, expanders.DEFAULT_IDLE_FILES_PATH)
 			if err != nil {
 				t.Log("generate idle file", err)
 			}
@@ -46,4 +48,17 @@ func TestIdleFileGeneration(t *testing.T) {
 	}
 	wg.Wait()
 	t.Log("generate idle file time", time.Since(ts))
+}
+
+func TestRealationMap(t *testing.T) {
+	graph := expanders.ConstructStackedExpanders(3, 1024, 64)
+	ch := graph.RunRelationalMapServer([]byte("test ud"), 1)
+	count := 0
+	for node := range ch {
+		if count > 10 {
+			break
+		}
+		t.Log("node index", node.Index)
+		count++
+	}
 }

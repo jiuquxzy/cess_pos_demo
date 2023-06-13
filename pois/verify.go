@@ -18,12 +18,13 @@ var (
 	MaxBufSize = 4 * 16
 	verifier   *Verifier
 	SpaceChals = 1
+	Pick       = 1
 )
 
 // ProverNode denote Prover
 type ProverNode struct {
-	ID         []byte    // Prover ID(generally, use AccountID)
-	CommitsBuf []*Commit //buffer for all layer MHT proofs of one commit
+	ID         []byte   // Prover ID(generally, use AccountID)
+	CommitsBuf []Commit //buffer for all layer MHT proofs of one commit
 	BufSize    int
 	Acc        []byte //Prover's accumulator
 	Count      int64  // Idle file proofs' counter
@@ -56,13 +57,13 @@ func (v *Verifier) RegisterProverNode(ID []byte) error {
 	}
 	v.Nodes[id] = &ProverNode{
 		ID:         ID,
-		CommitsBuf: make([]*Commit, MaxBufSize),
+		CommitsBuf: make([]Commit, MaxBufSize),
 		Acc:        v.Key.G.Bytes(),
 	}
 	return nil
 }
 
-func (v *Verifier) ReceiveCommits(ID []byte, commits []*Commit) bool {
+func (v *Verifier) ReceiveCommits(ID []byte, commits []Commit) bool {
 	id := hex.EncodeToString(ID)
 	pNode, ok := v.Nodes[id]
 	if !ok {
@@ -112,6 +113,7 @@ func (v *Verifier) CommitChallenges(ID []byte, left, right int) ([][]int64, erro
 		if err != nil {
 			return nil, errors.Wrap(err, "generate commit challenges error")
 		}
+		r.Add(r, new(big.Int).SetInt64(v.Expanders.N*v.Expanders.K))
 		challenges[idx][1] = r.Int64()
 		for j := 2; j < int(v.Expanders.K+2); j++ {
 			r, err := rand.Int(rand.Reader, new(big.Int).SetInt64(v.Expanders.D+1))
@@ -154,6 +156,7 @@ func (v *Verifier) SpaceChallenges(ID []byte, param int64) ([][]int64, error) {
 			if err != nil {
 				return nil, errors.Wrap(err, "generate commit challenges error")
 			}
+			r2.Add(r2, new(big.Int).SetInt64(v.Expanders.N*v.Expanders.K))
 			challenges[i][1] = r2.Int64()
 			break
 		}
@@ -172,6 +175,11 @@ func (v *Verifier) VerifyCommitProofs(ID []byte, chals [][]int64, proofs [][]Com
 		err := errors.New("bad proof data")
 		return errors.Wrap(err, "verify commit proofs error")
 	}
+
+	if err := v.VerifyNodeDependencies(ID, chals, proofs, Pick); err != nil {
+		return errors.Wrap(err, "verify commit proofs error")
+	}
+
 	index := 0
 	for i := 0; i < pNode.BufSize; i++ {
 		if chals[0][0] == pNode.CommitsBuf[i].FileIndex {
@@ -180,20 +188,24 @@ func (v *Verifier) VerifyCommitProofs(ID []byte, chals [][]int64, proofs [][]Com
 		}
 	}
 	frontSize := int(unsafe.Sizeof(expanders.NodeType(0))) + len(ID) + 8
+	hashSize := expanders.HashSize
+	label := make([]byte, frontSize+int(v.Expanders.D+1)*hashSize)
 	for i := 0; i < len(proofs); i++ {
-		idx := 0
-		label := make([]byte, frontSize+int(v.Expanders.D+1)*64)
+
+		if chals[i][1] != int64(proofs[i][0].Node.Index) {
+			err := errors.New("bad expanders node index")
+			return errors.Wrap(err, "verify commit proofs error")
+		}
+
+		var idx expanders.NodeType
 		for j := 1; j < len(chals[i]); j++ {
 			if j == 1 {
-				idx = int(chals[i][1])
+				idx = expanders.NodeType(chals[i][1])
 			} else {
-				idx = int(proofs[i][j-1].Parents[chals[i][j]].Index)
+				idx = expanders.NodeType(proofs[i][j-2].Parents[chals[i][j]].Index)
 			}
-			if chals[i][1] != int64(proofs[i][0].Node.Index) {
-				err := errors.New("bad expanders node index")
-				return errors.Wrap(err, "verify commit proofs error")
-			}
-			layer := int(v.Expanders.K) - j - 1
+
+			layer := int64(idx) / v.Expanders.N
 			root := pNode.CommitsBuf[index+i].Roots[layer]
 			pathProof := tree.PathProof{
 				Locs: proofs[i][j-1].Node.Locs,
@@ -208,11 +220,12 @@ func (v *Verifier) VerifyCommitProofs(ID []byte, chals [][]int64, proofs [][]Com
 			}
 			util.CopyData(
 				label, ID,
-				expanders.GetBytes(chals[i][0]),
+				expanders.GetBytes(int64(chals[i][0])),
 				expanders.GetBytes(idx),
 			)
-			for k, p := range proofs[i][j-1].Parents {
-				if p.Index >= expanders.NodeType(layer*int(v.Expanders.N)) {
+			size := frontSize
+			for _, p := range proofs[i][j-1].Parents {
+				if int64(p.Index) >= layer*v.Expanders.N {
 					root = pNode.CommitsBuf[index+i].Roots[layer]
 				} else {
 					root = pNode.CommitsBuf[index+i].Roots[layer-1]
@@ -225,17 +238,43 @@ func (v *Verifier) VerifyCommitProofs(ID []byte, chals [][]int64, proofs [][]Com
 					err := errors.New("verify parent path proof error")
 					return errors.Wrap(err, "verify commit proofs error")
 				}
-				l := frontSize + k*expanders.HashSize
-				r := frontSize + (k+1)*expanders.HashSize
-				copy(label[l:r], p.Label)
+				copy(label[size:size+hashSize], p.Label)
+				size += hashSize
 			}
-			if !bytes.Equal(label, proofs[i][j-1].Node.Label) {
+			if !bytes.Equal(expanders.GetHash(label), proofs[i][j-1].Node.Label) {
 				err := errors.New("verify label error")
 				return errors.Wrap(err, "verify commit proofs error")
 			}
 		}
 	}
 
+	return nil
+}
+
+func (v *Verifier) VerifyNodeDependencies(ID []byte, chals [][]int64, proofs [][]CommitProof, pick int) error {
+	if pick > len(proofs) {
+		pick = len(proofs)
+	}
+	for i := 0; i < pick; i++ {
+		r1, err := rand.Int(rand.Reader, new(big.Int).SetInt64(int64(len(proofs))))
+		if err != nil {
+			return errors.Wrap(err, "verify node dependencies error")
+		}
+		r2, err := rand.Int(rand.Reader, new(big.Int).SetInt64(int64(len(proofs[r1.Int64()])-1)))
+		if err != nil {
+			return errors.Wrap(err, "verify node dependencies error")
+		}
+		proof := proofs[r1.Int64()][r2.Int64()]
+		node := expanders.NewNode(proof.Node.Index)
+		node.Parents = make([]expanders.NodeType, 0, v.Expanders.D+1)
+		expanders.CalcParents(&v.Expanders, node, ID, chals[r1.Int64()][0])
+		for j := 0; j < len(node.Parents); j++ {
+			if node.Parents[j] != proof.Parents[j].Index {
+				err = errors.New("node relationship mismatch")
+				return errors.Wrap(err, "verify node dependencies error")
+			}
+		}
+	}
 	return nil
 }
 
@@ -265,7 +304,7 @@ func (v *Verifier) VerifyAcc(ID []byte, chals [][]int64, proof *AccProof) error 
 		}
 		util.CopyData(label, ID, expanders.GetBytes(chals[i][0]),
 			pNode.CommitsBuf[i+index].Roots[v.Expanders.K])
-		if !bytes.Equal(label, proof.Labels[i]) {
+		if !bytes.Equal(expanders.GetHash(label), proof.Labels[i]) {
 			err := errors.New("verify file label error")
 			return errors.Wrap(err, "verify acc proofs error")
 		}
@@ -295,7 +334,7 @@ func (v *Verifier) VerifySpace(ID []byte, chals [][]int64, proof *SpaceProof) er
 	}
 	label := make([]byte, len(ID)+8+expanders.HashSize)
 	for i := 0; i < len(chals); i++ {
-		if chals[i][0] != int64(proof.Proofs[i].Index) {
+		if chals[i][1] != int64(proof.Proofs[i].Index) {
 			err := errors.New("bad file index")
 			return errors.Wrap(err, "verify space proofs error")
 		}
@@ -308,7 +347,7 @@ func (v *Verifier) VerifySpace(ID []byte, chals [][]int64, proof *SpaceProof) er
 			return errors.Wrap(err, "verify space proofs error")
 		}
 		util.CopyData(label, ID, expanders.GetBytes(chals[i][0]), proof.Roots[i])
-		if !bytes.Equal(label, proof.WitChains[i].Elem) {
+		if !bytes.Equal(expanders.GetHash(label), proof.WitChains[i].Elem) {
 			err := errors.New("verify file label error")
 			return errors.Wrap(err, "verify space proofs error")
 		}

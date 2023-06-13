@@ -69,7 +69,7 @@ func (node *Node) AddParent(parent NodeType) bool {
 	}
 	node.Parents = append(node.Parents, 0)
 	lens := len(node.Parents)
-	if lens == 1 || lens == cap(node.Parents) {
+	if lens == 1 || i == lens-1 {
 		node.Parents[i] = parent
 		return true
 	}

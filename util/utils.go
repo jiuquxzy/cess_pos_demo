@@ -3,14 +3,10 @@ package util
 import (
 	"bufio"
 	"bytes"
-	"crypto/rand"
-	"encoding/binary"
 	"fmt"
-	"log"
 	r "math/rand"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 )
@@ -19,25 +15,7 @@ var CHARS = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
 	"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
 	"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"}
 
-func Int64Bytes(i int64) []byte {
-	buf := make([]byte, 8)
-	binary.PutVarint(buf, i)
-	return buf
-}
-
-func Rand(max int64) int64 {
-	buf := make([]byte, 8)
-	rand.Read(buf)
-	i, _ := binary.Varint(buf)
-	if i < 0 {
-		i *= -1
-	}
-	i %= max
-	return i
-}
-
 func SaveProofFile(path string, data [][]byte) error {
-	ts := time.Now()
 	file, err := os.Create(path)
 	if err != nil {
 		return errors.Wrap(err, "save proof file error")
@@ -52,7 +30,6 @@ func SaveProofFile(path string, data [][]byte) error {
 		}
 		writer.Flush()
 	}
-	log.Println("write file", path, "time", time.Since(ts))
 	return nil
 }
 
@@ -143,24 +120,6 @@ func ReadFile(path string) ([]byte, error) {
 		}
 	}
 	return buffer.Bytes(), nil
-}
-
-type Int64s []int64
-
-func (i64s Int64s) Len() int {
-	return len(i64s)
-}
-
-func (i64s Int64s) Size() int64 {
-	return int64(len(i64s))
-}
-
-func (i64s Int64s) Less(i, j int) bool {
-	return i64s[i] < i64s[j]
-}
-
-func (i64s Int64s) Swap(i, j int) {
-	i64s[i], i64s[j] = i64s[j], i64s[i]
 }
 
 func RandString(lenNum int) string {

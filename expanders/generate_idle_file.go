@@ -103,19 +103,18 @@ func (expanders *Expanders) GenerateIdleFile(minerID []byte, Count int64, rootDi
 		for j := int64(0); j < expanders.N; j++ {
 			node := <-ch
 			util.CopyData(label, minerID,
-				GetBytes(Count), GetBytes(NodeType(i*expanders.N+j)))
+				GetBytes(Count), GetBytes(node.Index))
 			bytesCount := labelLeftSize
 			if i > 0 && !node.NoParents() {
-				for _, idx := range node.Parents {
-					if int64(idx) < expanders.N {
-						l, r := idx*NodeType(HashSize), (idx+1)*NodeType(HashSize)
+				for _, p := range node.Parents {
+					idx := int64(p) % expanders.N
+					l, r := idx*int64(HashSize), (idx+1)*int64(HashSize)
+					if int64(p) < i*expanders.N {
 						copy(label[bytesCount:bytesCount+HashSize], (*parents)[l:r])
-						bytesCount += HashSize
 					} else {
-						l, r := (int64(idx)-expanders.N)*int64(HashSize), (int64(idx)-expanders.N+1)*int64(HashSize)
 						copy(label[bytesCount:bytesCount+HashSize], (*labels)[l:r])
-						bytesCount += HashSize
 					}
+					bytesCount += HashSize
 				}
 			}
 			hash.Reset()
