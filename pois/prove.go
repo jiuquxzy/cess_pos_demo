@@ -16,8 +16,8 @@ import (
 
 var (
 	prover               *Prover
+	FileSize             int64
 	MaxCommitProofThread = 16
-	MaxSpaceProofThread  = 64
 	AvailableSpace       int64 //unit(MiB)
 )
 
@@ -82,6 +82,7 @@ func InitProver(k, n, d int64, ID []byte, filePath, accPath string, key acc.RsaK
 		FilePath: filePath,
 	}
 	prover.Expanders = expanders.ConstructStackedExpanders(k, n, d)
+	prover.workdone.Store(true)
 	var err error
 	prover.AccManager, err = acc.NewMutiLevelAcc(accPath, key)
 	return errors.Wrap(err, "init prover error")
@@ -96,19 +97,22 @@ func GetProver() *Prover {
 }
 
 func (p *Prover) GenerateFile(num int64) bool {
-	if num <= 0 {
+	if num <= 0 ||
+		AvailableSpace < num*FileSize*(p.Expanders.K+1) {
 		return false
 	}
-	if !p.workdone.CompareAndSwap(false, true) {
+	if p.delete.Load() {
 		return false
 	}
-	go func() {
-		for i := p.Added + 1; i <= p.Added+num; i++ {
-			p.cmdCh <- i
-		}
-		p.Added += num
-		p.workdone.Store(false)
-	}()
+	if !p.workdone.CompareAndSwap(true, false) {
+		return false
+	}
+	for i := p.Added + 1; i <= p.Added+num; i++ {
+		p.cmdCh <- i
+	}
+	p.Added += num
+	AvailableSpace -= num * FileSize
+	p.workdone.Store(true)
 	return true
 }
 
@@ -118,6 +122,13 @@ func (p *Prover) UpdateCount(num int64) bool {
 	p.Count += num
 	p.organizeFiles(num)
 	return true
+}
+
+// GetCount get Count Safely
+func (p *Prover) GetCount() int64 {
+	p.rw.RLock()
+	defer p.rw.RUnlock()
+	return p.Count
 }
 
 func (p *Prover) RunIdleFileGenerationServer(threadNum int) {
@@ -327,7 +338,6 @@ func (p *Prover) generateCommitProof(fdir string, count, c int64) (CommitProof, 
 	if err != nil {
 		return proof, errors.Wrap(err, "generate commit proof error")
 	}
-
 	parentTree = tree.CalcLightMhtWithBytes(*pdata, expanders.HashSize, true)
 	defer tree.RecoveryMht(parentTree)
 	lens := len(node.Parents)
@@ -436,18 +446,18 @@ func (p *Prover) ProveDeletion(num int64) (chan *DeletionProof, chan error) {
 		for {
 			commited := p.Commited.Load()
 			p.rw.RLock()
-			if p.Count == commited {
+			if p.Count == commited && p.workdone.Load() {
 				p.rw.RUnlock()
 				break
 			}
 			p.rw.RUnlock()
 		}
-		size := p.Expanders.N * num / (1024 * 1024)
-		if size < AvailableSpace {
-			ch <- nil
-			Err <- nil
-			return
-		}
+		// size := int64(expanders.HashSize) * num
+		// if size < AvailableSpace {
+		// 	ch <- nil
+		// 	Err <- nil
+		// 	return
+		// }
 		p.rw.Lock()
 		if p.Count < num {
 			p.rw.Unlock()

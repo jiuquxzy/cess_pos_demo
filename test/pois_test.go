@@ -26,16 +26,17 @@ func TestPois(t *testing.T) {
 	verifier := pois.NewVerifier(key, graph.K, graph.N, graph.D)
 	prover := pois.GetProver()
 
+	pois.SetAvailableSpace(4608)
 	//run idle file generation server
 	prover.RunIdleFileGenerationServer(pois.MaxCommitProofThread)
 
 	//add file to generate
-	ok := prover.GenerateFile(32)
+	ok := prover.GenerateFile(18)
 	if !ok {
 		t.Fatal("generate file error")
 	}
 	//wait 10 minutes for file generate
-	time.Sleep(time.Minute * 10)
+	time.Sleep(time.Minute * 8)
 	ts := time.Now()
 
 	//get commits
@@ -74,7 +75,7 @@ func TestPois(t *testing.T) {
 	//verify commit proof
 	ts = time.Now()
 	//err =
-	verifier.VerifyCommitProofs(prover.ID, chals, commitProof)
+	err = verifier.VerifyCommitProofs(prover.ID, chals, commitProof)
 	if err != nil {
 		t.Fatal("verify commit proof error", err)
 	}
@@ -132,7 +133,7 @@ func TestPois(t *testing.T) {
 
 	//deletion proof
 	ts = time.Now()
-	chProof, Err := prover.ProveDeletion(1)
+	chProof, Err := prover.ProveDeletion(16)
 	var delProof *pois.DeletionProof
 	select {
 	case err = <-Err:
